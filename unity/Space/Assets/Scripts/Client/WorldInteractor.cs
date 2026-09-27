@@ -8,6 +8,8 @@ namespace Assets.Scripts.Client
 
     public class WorldInteractor : MonoBehaviour
     {
+        public InteractMode InteractMode => interactMode;
+        public PhysicsGraph SelectedGraph => selectedGraph;
         public PhysicsVertex SelectedVertex => selectedVertex;
 
         [Header("References")]
@@ -16,30 +18,104 @@ namespace Assets.Scripts.Client
         [SerializeField] PhysicsSimulator simulator;
 
         [Header("Config")]
-        [SerializeField] InteractMode mode = InteractMode.Edit;
-        [SerializeField] float vertexPickRadius = 0.5f;
-        [SerializeField] float edgePickRadius = 0.2f;
+        [SerializeField] private InteractMode interactMode = InteractMode.Edit;
+        [SerializeField] private float vertexPickRadius = 0.5f;
+        [SerializeField] private float edgePickRadius = 0.2f;
+        [SerializeField] private float dragStartThreshold = 0.05f;
 
-        InputAction inputLmb;
-        InputAction inputRmb;
-        InputAction inputMmb;
-        InputAction inputDelete;
-        InputAction inputCancel;
-        InputAction inputToggleMode;
-        InputAction inputMousePos;
+        private PhysicsGraph selectedGraph;
+        private PhysicsVertex selectedVertex;
+        private PhysicsVertex draggingVertex;
+        private Vector2 dragStartMouseWorld;
+        private Vector2 dragStartOffset;
+        private bool isDragActive;
 
-        PhysicsGraph selectedGraph;
-        PhysicsVertex selectedVertex;
-        PhysicsVertex draggingVertex;
+        private bool CanEdit => cam != null && world != null;
 
-        bool CanEdit => cam != null && world != null;
-
-        void Awake()
+        private void Awake()
         {
             BuildInputs();
         }
 
-        void BuildInputs()
+        private void OnEnable()
+        {
+            RegisterInputs();
+            ApplyInteractionMode();
+        }
+
+        private void OnDisable()
+        {
+            UnregisterInputs();
+        }
+
+        private void Update()
+        {
+            if (draggingVertex == null) return;
+
+            Vector2 mouseWorld = GetMouseWorld();
+
+            if (!isDragActive)
+            {
+                if ((mouseWorld - dragStartMouseWorld).sqrMagnitude < dragStartThreshold * dragStartThreshold) return;
+                isDragActive = true;
+            }
+
+            Vector2 targetPosition = mouseWorld + dragStartOffset;
+
+            if (interactMode == InteractMode.Edit)
+            {
+                // Move without velocity
+                draggingVertex.Position = targetPosition;
+                draggingVertex.OldPosition = targetPosition;
+            }
+            else
+            {
+                // Move with velocity (leave OldPosition stale)
+                draggingVertex.Position = targetPosition;
+            }
+
+            UpdateConnectedEdgeRestLengths(draggingVertex, selectedGraph);
+        }
+
+        private static void UpdateConnectedEdgeRestLengths(PhysicsVertex vertex, PhysicsGraph graph)
+        {
+            if (vertex == null || graph == null) return;
+
+            foreach (var edge in graph.Edges)
+            {
+                if (edge.A != vertex.Id && edge.B != vertex.Id) continue;
+
+                var a = graph.GetVertex(edge.A);
+                var b = graph.GetVertex(edge.B);
+                if (a == null || b == null) continue;
+
+                edge.RestLength = Vector2.Distance(a.Position, b.Position);
+            }
+        }
+
+        private void ApplyInteractionMode()
+        {
+            selectedGraph = null;
+            selectedVertex = null;
+            draggingVertex = null;
+
+            if (simulator != null)
+            {
+                simulator.enabled = interactMode == InteractMode.Physics;
+            }
+        }
+
+        #region Input
+
+        private InputAction inputLmb;
+        private InputAction inputRmb;
+        private InputAction inputMmb;
+        private InputAction inputDelete;
+        private InputAction inputCancel;
+        private InputAction inputToggleMode;
+        InputAction inputMousePos;
+
+        private void BuildInputs()
         {
             var map = new InputActionMap("WorldInteractor");
 
@@ -47,17 +123,16 @@ namespace Assets.Scripts.Client
             inputLmb = map.AddAction("LeftClick", InputActionType.Button, "<Mouse>/leftButton");
             inputRmb = map.AddAction("RightClick", InputActionType.Button, "<Mouse>/rightButton");
             inputMmb = map.AddAction("MiddleClick", InputActionType.Button, "<Mouse>/middleButton");
-
             inputDelete = map.AddAction("Delete", InputActionType.Button);
             inputDelete.AddBinding("<Keyboard>/delete");
             inputDelete.AddBinding("<Keyboard>/backspace");
-
             inputCancel = map.AddAction("Cancel", InputActionType.Button, "<Keyboard>/escape");
             inputToggleMode = map.AddAction("ToggleMode", InputActionType.Button, "<Keyboard>/tab");
         }
 
-        void OnEnable()
+        private void RegisterInputs()
         {
+
             inputLmb.Enable();
             inputRmb.Enable();
             inputMmb.Enable();
@@ -66,23 +141,21 @@ namespace Assets.Scripts.Client
             inputMousePos.Enable();
             inputToggleMode.Enable();
 
-            inputLmb.started += OnLmbPress;
-            inputLmb.canceled += OnLmbRelease;
-            inputRmb.started += OnRmbPress;
-            inputMmb.started += OnMmbPress;
+            inputLmb.started += OnInteract1Pressed;
+            inputLmb.canceled += OnInteract1Released;
+            inputRmb.started += OnInteract2Pressed;
+            inputMmb.started += OnInteract3Pressed;
             inputDelete.started += OnDeletePress;
             inputCancel.started += OnCancelPress;
             inputToggleMode.started += OnToggleModePress;
-
-            ApplyMode();
         }
 
-        void OnDisable()
+        private void UnregisterInputs()
         {
-            inputLmb.started -= OnLmbPress;
-            inputLmb.canceled -= OnLmbRelease;
-            inputRmb.started -= OnRmbPress;
-            inputMmb.started -= OnMmbPress;
+            inputLmb.started -= OnInteract1Pressed;
+            inputLmb.canceled -= OnInteract1Released;
+            inputRmb.started -= OnInteract2Pressed;
+            inputMmb.started -= OnInteract3Pressed;
             inputDelete.started -= OnDeletePress;
             inputCancel.started -= OnCancelPress;
             inputToggleMode.started -= OnToggleModePress;
@@ -96,115 +169,150 @@ namespace Assets.Scripts.Client
             inputToggleMode.Disable();
         }
 
-        void Update()
+        private Vector2 GetMouseWorld()
         {
-            if (draggingVertex == null) return;
-
-            Vector2 mouseWorld = GetMouseWorld();
-
-            if (mode == InteractMode.Edit)
-            {
-                // Teleport cleanly - no velocity is carried into the simulation.
-                draggingVertex.Position = mouseWorld;
-                draggingVertex.OldPosition = mouseWorld;
-            }
-            else
-            {
-                // Leave OldPosition stale: on release, the vertex keeps the
-                // velocity implied by the last frame's drag (a "throw").
-                draggingVertex.Position = mouseWorld;
-            }
+            Vector2 screen = inputMousePos.ReadValue<Vector2>();
+            return cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, -cam.transform.position.z));
         }
 
-        void OnToggleModePress(InputAction.CallbackContext _)
+        private void OnToggleModePress(InputAction.CallbackContext ctx)
         {
-            mode = mode == InteractMode.Edit ? InteractMode.Physics : InteractMode.Edit;
-            ApplyMode();
+            interactMode = interactMode == InteractMode.Edit
+                ? InteractMode.Physics
+                : InteractMode.Edit;
+
+            ApplyInteractionMode();
         }
 
-        void ApplyMode()
-        {
-            selectedGraph = null;
-            selectedVertex = null;
-            draggingVertex = null;
-            if (simulator != null) simulator.enabled = mode == InteractMode.Physics;
-        }
-
-        void OnLmbPress(InputAction.CallbackContext _)
+        private void OnInteract1Pressed(InputAction.CallbackContext ctx)
         {
             if (!CanEdit) return;
 
             Vector2 mouseWorld = GetMouseWorld();
 
-            if (mode == InteractMode.Edit)
+            // EDIT: Select and start dragging, otherwise deselect the graph
+            if (interactMode == InteractMode.Edit)
             {
-                // Clicking a vertex in any graph both selects its owner and starts dragging it.
-                // Clicking empty space only creates a new vertex if a graph is already selected.
-                var clicked = world.FindNearestVertex(mouseWorld, vertexPickRadius, out var clickedGraph);
+                var clickedVertex = world.FindNearestVertex(mouseWorld, vertexPickRadius, out var vertexGraph);
+                if (clickedVertex != null)
+                {
+                    selectedGraph = vertexGraph;
+                    StartDrag(clickedVertex, mouseWorld);
+                }
+                else
+                {
+                    selectedGraph = null;
+                    selectedVertex = null;
+                }
+            }
 
-                if (clicked != null)
-                {
-                    selectedGraph = clickedGraph;
-                    draggingVertex = clicked;
-                }
-                else if (selectedGraph != null)
-                {
-                    draggingVertex = selectedGraph.AddVertex(mouseWorld);
-                }
+            // PHYSICS: Select and start dragging
+            else
+            {
+                var clickedVertex = world.FindNearestVertex(mouseWorld, vertexPickRadius, out var vertexGraph);
+                selectedGraph = vertexGraph;
+                StartDrag(clickedVertex, mouseWorld);
+            }
+        }
+
+        private void StartDrag(PhysicsVertex vertex, Vector2 mouseWorld)
+        {
+            draggingVertex = vertex;
+            isDragActive = false;
+
+            if (vertex == null) return;
+            dragStartMouseWorld = mouseWorld;
+            dragStartOffset = vertex.Position - mouseWorld;
+        }
+
+        private void OnInteract1Released(InputAction.CallbackContext ctx)
+        {
+            // Always stop dragging
+            draggingVertex = null;
+            isDragActive = false;
+        }
+
+        private void OnInteract2Pressed(InputAction.CallbackContext ctx)
+        {
+            if (interactMode != InteractMode.Edit || !CanEdit) return;
+
+            Vector2 mouseWorld = GetMouseWorld();
+
+            // Look within the selected graph if we have one, otherwise search the whole world
+            PhysicsVertex clickedVertex;
+            if (selectedGraph != null)
+            {
+                clickedVertex = selectedGraph.FindVertex(mouseWorld, vertexPickRadius);
             }
             else
             {
-                draggingVertex = world.FindNearestVertex(mouseWorld, vertexPickRadius, out _);
+                clickedVertex = world.FindNearestVertex(mouseWorld, vertexPickRadius, out var vertexGraph);
+                selectedGraph = vertexGraph;
             }
-        }
 
-        void OnLmbRelease(InputAction.CallbackContext _)
-        {
-            draggingVertex = null;
-        }
-
-        void OnRmbPress(InputAction.CallbackContext _)
-        {
-            if (mode != InteractMode.Edit || !CanEdit || selectedGraph == null) return;
-
-            Vector2 mouseWorld = GetMouseWorld();
-            var clicked = selectedGraph.FindVertex(mouseWorld, vertexPickRadius);
-
-            if (selectedVertex == null)
+            // Clicked empty space: create a new node (needs a graph to add it to), connecting it to the selected vertex if any
+            if (clickedVertex == null)
             {
-                selectedVertex = clicked;
+                if (selectedGraph == null) return;
+
+                var newVertex = selectedGraph.AddVertex(mouseWorld);
+                if (selectedVertex != null) selectedGraph.AddEdge(selectedVertex, newVertex);
+                selectedVertex = newVertex;
                 return;
             }
 
-            if (clicked == null || clicked == selectedVertex)
+            // Select new vertex
+            if (selectedVertex == null)
+            {
+                selectedVertex = clickedVertex;
+                return;
+            }
+
+            // Deselect vertex
+            if (clickedVertex == selectedVertex)
             {
                 selectedVertex = null;
                 return;
             }
 
-            selectedGraph.AddEdge(selectedVertex, clicked);
-            selectedVertex = null;
+            // Connection to new selected vertex
+            selectedGraph.AddEdge(selectedVertex, clickedVertex);
+            selectedVertex = clickedVertex;
         }
 
-        void OnMmbPress(InputAction.CallbackContext _)
+        private void OnInteract3Pressed(InputAction.CallbackContext ctx)
         {
-            if (mode != InteractMode.Edit || !CanEdit || selectedGraph == null) return;
+            if (interactMode != InteractMode.Edit || !CanEdit) return;
 
+            // Cycle through EdgeType enum
+            // Search within the selected graph if we have one, otherwise the whole world
             Vector2 mouseWorld = GetMouseWorld();
-            var edge = selectedGraph.FindEdge(mouseWorld, edgePickRadius);
-            if (edge == null) return;
 
-            int count = System.Enum.GetValues(typeof(EdgeType)).Length;
-            edge.Type = (EdgeType)(((int)edge.Type + 1) % count);
+            PhysicsEdge selectedEdge;
+            if (selectedGraph != null)
+            {
+                selectedEdge = selectedGraph.FindEdge(mouseWorld, edgePickRadius);
+            }
+            else
+            {
+                selectedEdge = world.FindNearestEdge(mouseWorld, edgePickRadius, out var edgeGraph);
+                selectedGraph = edgeGraph;
+            }
+
+            if (selectedEdge == null) return;
+
+            int maxEnum = System.Enum.GetValues(typeof(PhysicsEdgeType)).Length;
+            selectedEdge.Type = (PhysicsEdgeType)(((int)selectedEdge.Type + 1) % maxEnum);
         }
 
-        void OnDeletePress(InputAction.CallbackContext _)
+        private void OnDeletePress(InputAction.CallbackContext ctx)
         {
-            if (mode != InteractMode.Edit || !CanEdit || selectedGraph == null) return;
+            if (interactMode != InteractMode.Edit || !CanEdit || selectedGraph == null) return;
 
             Vector2 mouseWorld = GetMouseWorld();
             var vertex = selectedGraph.FindVertex(mouseWorld, vertexPickRadius);
 
+            // Delete vertex
             if (vertex != null)
             {
                 if (selectedVertex == vertex) selectedVertex = null;
@@ -213,19 +321,16 @@ namespace Assets.Scripts.Client
                 return;
             }
 
+            // Delete edge
             var edge = selectedGraph.FindEdge(mouseWorld, edgePickRadius);
             if (edge != null) selectedGraph.RemoveEdge(edge);
         }
 
-        void OnCancelPress(InputAction.CallbackContext _)
+        private void OnCancelPress(InputAction.CallbackContext ctx)
         {
             selectedVertex = null;
         }
 
-        Vector2 GetMouseWorld()
-        {
-            Vector2 screen = inputMousePos.ReadValue<Vector2>();
-            return cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, -cam.transform.position.z));
-        }
+        #endregion
     }
 }

@@ -9,12 +9,12 @@ namespace Assets.Scripts.World
     public class PhysicsGraphData
     {
         public int NextVertexId;
-        public List<VertexData> Vertices = new();
-        public List<EdgeData> Edges = new();
+        public List<PhysicsVertexData> Vertices = new();
+        public List<PhysicsEdgeData> Edges = new();
     }
 
     [Serializable]
-    public class VertexData
+    public class PhysicsVertexData
     {
         public int Id;
         public float X;
@@ -24,11 +24,11 @@ namespace Assets.Scripts.World
     }
 
     [Serializable]
-    public class EdgeData
+    public class PhysicsEdgeData
     {
         public int A;
         public int B;
-        public EdgeType Type;
+        public PhysicsEdgeType Type;
         public float RestLength;
         public float Stiffness;
         public float YieldStrain;
@@ -53,7 +53,7 @@ namespace Assets.Scripts.World
 
             foreach (var v in graph.Vertices)
             {
-                data.Vertices.Add(new VertexData
+                data.Vertices.Add(new PhysicsVertexData
                 {
                     Id = v.Id,
                     X = v.Position.x,
@@ -65,7 +65,7 @@ namespace Assets.Scripts.World
 
             foreach (var e in graph.Edges)
             {
-                data.Edges.Add(new EdgeData
+                data.Edges.Add(new PhysicsEdgeData
                 {
                     A = e.A,
                     B = e.B,
@@ -79,6 +79,7 @@ namespace Assets.Scripts.World
             }
 
             string path = ResolvePath(objectName);
+            Debug.Log($"Saving to {path}");
 
             try
             {
@@ -97,6 +98,8 @@ namespace Assets.Scripts.World
 
             string path = ResolvePath(objectName);
             if (!File.Exists(path)) return new PhysicsGraph();
+
+            Debug.Log($"Loading from {path}");
 
             PhysicsGraphData data;
 
@@ -135,10 +138,10 @@ namespace Assets.Scripts.World
                     B = ed.B,
                     Type = ed.Type,
                     RestLength = ed.RestLength,
-                    Stiffness = ed.Stiffness,
-                    YieldStrain = ed.YieldStrain,
-                    BreakStrain = ed.BreakStrain,
-                    PlasticRate = ed.PlasticRate,
+                    // Stiffness = ed.Stiffness,
+                    // YieldStrain = ed.YieldStrain,
+                    // BreakStrain = ed.BreakStrain,
+                    // PlasticRate = ed.PlasticRate,
                 });
             }
 

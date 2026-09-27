@@ -12,6 +12,7 @@ namespace Assets.Scripts.World
         void Awake()
         {
             Graph = PhysicsGraphSerializer.Load(ObjectName);
+            if (Graph.Vertices.Count == 0) Graph.AddVertex(Vector2.zero);
         }
 
         void OnEnable()

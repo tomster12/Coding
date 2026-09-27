@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Assets.Scripts.Utility;
 using UnityEngine;
 
 namespace Assets.Scripts.World
@@ -35,6 +36,35 @@ namespace Assets.Scripts.World
                     {
                         bestSqr = sqr;
                         nearest = v;
+                        graph = obj.Graph;
+                    }
+                }
+            }
+
+            return nearest;
+        }
+
+        public PhysicsEdge FindNearestEdge(Vector2 pos, float maxDist, out PhysicsGraph graph)
+        {
+            PhysicsEdge nearest = null;
+            graph = null;
+            float bestDist = maxDist;
+
+            foreach (var obj in objects)
+            {
+                if (obj.Graph == null) continue;
+
+                foreach (var edge in obj.Graph.Edges)
+                {
+                    var a = obj.Graph.GetVertex(edge.A);
+                    var b = obj.Graph.GetVertex(edge.B);
+                    if (a == null || b == null) continue;
+
+                    float d = Geometry.DistanceToSegment(pos, a.Position, b.Position);
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        nearest = edge;
                         graph = obj.Graph;
                     }
                 }

@@ -48,7 +48,7 @@ namespace Assets.Scripts.World
             {
                 A = a.Id,
                 B = b.Id,
-                Type = EdgeType.Hull,
+                Type = PhysicsEdgeType.Hull,
                 RestLength = Vector2.Distance(a.Position, b.Position),
             });
 
