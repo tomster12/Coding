@@ -1,13 +1,13 @@
-using Assets.Scripts.Data;
+using Assets.Scripts.World;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
-namespace Assets.Scripts
+namespace Assets.Scripts.Client
 {
     [ExecuteAlways]
-    public class GraphRenderer : MonoBehaviour
+    public class PhysicsGraphRenderer : MonoBehaviour
     {
         static readonly Color ColourHull = new(0.20f, 0.90f, 0.30f);
         static readonly Color ColourInternal = new(0.95f, 0.85f, 0.10f);
@@ -16,7 +16,7 @@ namespace Assets.Scripts
         static readonly Color ColourSelected = new(1f, 0.55f, 0f);
 
         [Header("References")]
-        [SerializeField] GraphInteractor interactor;
+        [SerializeField] WorldInteractor interactor;
         [SerializeField] WorldObject target;
 
         [Header("Config")]
@@ -24,13 +24,11 @@ namespace Assets.Scripts
         [SerializeField] bool showVertexIds = true;
         [SerializeField] bool showEdgeTypes = false;
 
-        GraphBody TargetBody => target.Body;
-        Graph TargetGraph => TargetBody.Graph;
+        PhysicsGraph TargetGraph => target.Graph;
         private bool CanRender =>
             interactor != null &&
             target != null &&
-            target.Body != null &&
-            target.Body.Graph != null;
+            target.Graph != null;
 
         void OnDrawGizmos()
         {
@@ -43,18 +41,18 @@ namespace Assets.Scripts
                 if (a == null || b == null) continue;
 
                 Gizmos.color = EdgeColour(edge.Type);
-                Gizmos.DrawLine(TargetBody.WorldPosition(a), TargetBody.WorldPosition(b));
+                Gizmos.DrawLine(a.Position, b.Position);
 
                 if (showEdgeTypes)
                 {
-                    Vector2 mid = (TargetBody.WorldPosition(a) + TargetBody.WorldPosition(b)) * 0.5f;
+                    Vector2 mid = (a.Position + b.Position) * 0.5f;
                     Handles.Label(mid + Vector2.up * 0.15f, edge.Type.ToString());
                 }
             }
 
             foreach (var vertex in TargetGraph.Vertices)
             {
-                Vector2 wp = TargetBody.WorldPosition(vertex);
+                Vector2 wp = vertex.Position;
 
                 Handles.color = vertex == interactor.SelectedVertex ? ColourSelected : ColourVertex;
                 Handles.DrawSolidDisc(wp, Vector3.forward, vertexRadius);

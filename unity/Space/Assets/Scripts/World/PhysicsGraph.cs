@@ -2,49 +2,35 @@ using System.Collections.Generic;
 using Assets.Scripts.Utility;
 using UnityEngine;
 
-namespace Assets.Scripts.Data
+namespace Assets.Scripts.World
 {
-    public enum EdgeType { Hull, Internal, Brace }
-
-    public class GraphVertex
+    public class PhysicsGraph
     {
-        public int Id;
-        public Vector2 Position;
-    }
-
-    public class GraphEdge
-    {
-        public int A;
-        public int B;
-        public EdgeType Type;
-    }
-
-    public class Graph
-    {
-        public List<GraphVertex> Vertices = new();
-        public List<GraphEdge> Edges = new();
+        public List<PhysicsVertex> Vertices = new();
+        public List<PhysicsEdge> Edges = new();
         public int NextVertexId;
 
-        public GraphVertex AddVertex(Vector2 pos)
+        public PhysicsVertex AddVertex(Vector2 position)
         {
-            var v = new GraphVertex
+            var vertex = new PhysicsVertex
             {
                 Id = NextVertexId++,
-                Position = pos
+                Position = position,
+                OldPosition = position,
             };
 
-            Vertices.Add(v);
-            return v;
+            Vertices.Add(vertex);
+            return vertex;
         }
 
-        public void RemoveVertex(GraphVertex vertex)
+        public void RemoveVertex(PhysicsVertex vertex)
         {
             if (vertex == null) return;
             Edges.RemoveAll(e => e.A == vertex.Id || e.B == vertex.Id);
             Vertices.Remove(vertex);
         }
 
-        public bool AddEdge(GraphVertex a, GraphVertex b)
+        public bool AddEdge(PhysicsVertex a, PhysicsVertex b)
         {
             if (a == null || b == null || a == b) return false;
 
@@ -57,22 +43,24 @@ namespace Assets.Scripts.Data
                 }
             }
 
-            Edges.Add(new GraphEdge
+            // Rest length is captured from the shape as drawn/built.
+            Edges.Add(new PhysicsEdge
             {
                 A = a.Id,
                 B = b.Id,
-                Type = EdgeType.Hull
+                Type = EdgeType.Hull,
+                RestLength = Vector2.Distance(a.Position, b.Position),
             });
 
             return true;
         }
 
-        public void RemoveEdge(GraphEdge edge)
+        public void RemoveEdge(PhysicsEdge edge)
         {
             Edges.Remove(edge);
         }
 
-        public GraphVertex GetVertex(int id)
+        public PhysicsVertex GetVertex(int id)
         {
             foreach (var v in Vertices)
             {
@@ -81,7 +69,7 @@ namespace Assets.Scripts.Data
             return null;
         }
 
-        public Vector2 LocalCentroid()
+        public Vector2 Centroid()
         {
             if (Vertices.Count == 0) return Vector2.zero;
             var sum = Vector2.zero;
@@ -89,9 +77,9 @@ namespace Assets.Scripts.Data
             return sum / Vertices.Count;
         }
 
-        public GraphVertex FindVertex(Vector2 pos, float maxDist)
+        public PhysicsVertex FindVertex(Vector2 pos, float maxDist)
         {
-            GraphVertex nearest = null;
+            PhysicsVertex nearest = null;
             float bestSqr = maxDist * maxDist;
 
             foreach (var v in Vertices)
@@ -107,9 +95,9 @@ namespace Assets.Scripts.Data
             return nearest;
         }
 
-        public GraphEdge FindEdge(Vector2 pos, float maxDist)
+        public PhysicsEdge FindEdge(Vector2 pos, float maxDist)
         {
-            GraphEdge nearest = null;
+            PhysicsEdge nearest = null;
             float bestDist = maxDist;
 
             foreach (var edge in Edges)
